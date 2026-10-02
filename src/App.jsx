@@ -2144,7 +2144,7 @@ function SignupPage({
 }
 
 /* =========================================================
-   DONOR DASHBOARD
+   DASHBOARD
 ========================================================= */
 
 function DashboardPage({
@@ -2225,6 +2225,82 @@ function DashboardPage({
   const [requestsLoading, setRequestsLoading] =
     useState(false);
 
+  /* =========================================================
+     DONOR MATCHING STATE
+  ========================================================= */
+
+  const [matchingRequests, setMatchingRequests] =
+    useState([]);
+
+  const [matchingLoading, setMatchingLoading] =
+    useState(false);
+
+  const [matchingError, setMatchingError] =
+    useState("");
+
+  /* =========================================================
+     DONATION RESPONSE STATE
+  ========================================================= */
+
+  const [donationResponses, setDonationResponses] =
+    useState([]);
+
+  const [donationLoading, setDonationLoading] =
+    useState(false);
+
+  const [donationError, setDonationError] =
+    useState("");
+
+  const [recipientResponses, setRecipientResponses] =
+    useState([]);
+
+  const [recipientResponsesLoading, setRecipientResponsesLoading] =
+    useState(false);
+
+  /* =========================================================
+     DONOR / RECIPIENT CHAT STATE
+  ========================================================= */
+
+  const [selectedResponse, setSelectedResponse] =
+    useState(null);
+
+  const [chatMessages, setChatMessages] =
+    useState([]);
+
+  const [chatText, setChatText] =
+    useState("");
+
+  const [chatLoading, setChatLoading] =
+    useState(false);
+
+  const [chatSending, setChatSending] =
+    useState(false);
+
+  const [chatError, setChatError] =
+    useState("");
+
+  const [chatOpen, setChatOpen] =
+    useState(false);
+
+  /* =========================================================
+     ACCOUNT TYPE
+
+     IMPORTANT:
+     Keep this BEFORE functions/effects that use it.
+  ========================================================= */
+
+  const accountType = String(
+    profile?.account_type ||
+    user?.user_metadata?.role ||
+    "donor"
+  )
+    .trim()
+    .toLowerCase();
+
+  /* =========================================================
+     FETCH PROFILE
+  ========================================================= */
+
   useEffect(() => {
     let mounted = true;
 
@@ -2241,80 +2317,129 @@ function DashboardPage({
       setErrorMessage("");
       setProfileWarning("");
 
-      const {
-        data,
-        error,
-      } = await supabase
-        .from("profiles")
-        .select(
-          "id, full_name, email, account_type, created_at, blood_group, phone, location, availability, last_donation_date, latitude, longitude"
-        )
-        .eq("id", user.id)
-        .maybeSingle();
+      try {
+        const {
+          data,
+          error,
+        } = await supabase
+          .from("profiles")
+          .select(
+            "id, full_name, email, account_type, created_at, blood_group, phone, location, availability, last_donation_date, latitude, longitude"
+          )
+          .eq("id", user.id)
+          .maybeSingle();
 
-      if (!mounted) return;
+        if (!mounted) return;
 
-      if (error) {
+        if (error) {
+          console.error(
+            "Profile fetch error:",
+            error
+          );
+
+          setProfileWarning(
+            "Your account is connected, but some saved profile details could not be loaded. You can still complete and save your profile below."
+          );
+
+          /*
+            IMPORTANT:
+            Do not keep dashboard stuck on loading
+            if Supabase profile fetch fails.
+          */
+          setProfile(null);
+
+          setBloodGroup("");
+          setPhone("");
+          setLocation("");
+          setAvailability(true);
+          setLastDonationDate("");
+
+          return;
+        }
+
+        if (data) {
+          setProfile(data);
+
+          setBloodGroup(
+            data.blood_group || ""
+          );
+
+          setPhone(
+            data.phone || ""
+          );
+
+          setLocation(
+            data.location || ""
+          );
+
+          /*
+            availability is stored as TEXT in your DB.
+            Therefore normalize both:
+            true / false
+            "true" / "false"
+          */
+
+          const savedAvailability =
+            data.availability;
+
+          if (
+            savedAvailability === null ||
+            savedAvailability === undefined ||
+            savedAvailability === ""
+          ) {
+            setAvailability(true);
+          } else if (
+            typeof savedAvailability === "string"
+          ) {
+            setAvailability(
+              savedAvailability.toLowerCase() ===
+                "true"
+            );
+          } else {
+            setAvailability(
+              Boolean(savedAvailability)
+            );
+          }
+
+          setLastDonationDate(
+            data.last_donation_date || ""
+          );
+        } else {
+          /*
+            No profile row:
+            keep auth user data visible.
+          */
+
+          setProfile(null);
+
+          setBloodGroup("");
+          setPhone("");
+          setLocation("");
+          setAvailability(true);
+          setLastDonationDate("");
+
+          setProfileWarning(
+            "Your account is ready. Complete your donor profile below to add your blood and location details."
+          );
+        }
+      } catch (error) {
         console.error(
-          "Profile fetch error:",
+          "Unexpected profile fetch error:",
           error
         );
 
-        /*
-          IMPORTANT:
-          Auth user is still valid even if the
-          profile row cannot be fetched.
-          We therefore do not destroy the dashboard.
-        */
+        if (!mounted) return;
 
         setProfileWarning(
-          "Your account is connected, but some saved profile details could not be loaded. You can still complete and save your profile below."
+          "Your account is connected, but we could not load your profile details. You can still try completing your profile below."
         );
-      } else if (data) {
-        setProfile(data);
-
-        setBloodGroup(
-          data.blood_group || ""
-        );
-
-        setPhone(
-          data.phone || ""
-        );
-
-        setLocation(
-          data.location || ""
-        );
-
-        setAvailability(
-          data.availability === null ||
-          data.availability === undefined
-            ? true
-            : data.availability
-        );
-
-        setLastDonationDate(
-          data.last_donation_date || ""
-        );
-      } else {
-        /*
-          No profile row:
-          keep auth user data visible.
-        */
 
         setProfile(null);
-
-        setBloodGroup("");
-        setPhone("");
-        setLocation("");
-        setAvailability(true);
-        setLastDonationDate("");
-
-        setProfileWarning(
-          "Your account is ready. Complete your donor profile below to add your blood and location details."
-        );
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
       }
-
-      setLoading(false);
     };
 
     fetchProfile();
@@ -2323,6 +2448,10 @@ function DashboardPage({
       mounted = false;
     };
   }, [user?.id]);
+
+  /* =========================================================
+     GET DONOR GPS LOCATION
+  ========================================================= */
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
@@ -2345,52 +2474,59 @@ function DashboardPage({
         const longitude =
           position.coords.longitude;
 
-        const {
-          data,
-          error,
-        } = await supabase
-          .from("profiles")
-          .update({
+        try {
+          const {
+            data,
+            error,
+          } = await supabase
+            .from("profiles")
+            .update({
+              latitude,
+              longitude,
+            })
+            .eq("id", user.id)
+            .select()
+            .maybeSingle();
+
+          setGettingLocation(false);
+
+          if (error) {
+            console.error(
+              "Location update error:",
+              error
+            );
+
+            setErrorMessage(
+              "Your location was detected, but it could not be saved. Please try again."
+            );
+
+            return;
+          }
+
+          setProfile((previous) => ({
+            ...(previous || {}),
+            ...(data || {}),
             latitude,
             longitude,
-          })
-          .eq("id", user.id)
-          .select()
-          .maybeSingle();
+          }));
 
-        setGettingLocation(false);
-
-        if (error) {
+          setSaveMessage(
+            data
+              ? "Your current location has been saved 📍"
+              : "Location detected. Save your profile to keep your details updated."
+          );
+        } catch (error) {
           console.error(
-            "Location update error:",
+            "Unexpected location update error:",
             error
           );
+
+          setGettingLocation(false);
 
           setErrorMessage(
             "Your location was detected, but it could not be saved. Please try again."
           );
-
-          return;
         }
-
-        /*
-          Merge instead of replacing profile.
-          This prevents GPS update from accidentally
-          removing already-loaded UI values.
-        */
-
-        setProfile((previous) => ({
-          ...(previous || {}),
-          ...(data || {}),
-          latitude,
-          longitude,
-        }));
-
-        setSaveMessage(
-          data
-            ? "Your current location has been saved 📍"
-            : "Location detected. Save your profile to keep your details updated."
-        );
       },
       (geoError) => {
         setGettingLocation(false);
@@ -2426,6 +2562,10 @@ function DashboardPage({
     );
   };
 
+  /* =========================================================
+     SAVE PROFILE
+  ========================================================= */
+
   const handleSaveProfile = async (e) => {
     e.preventDefault();
 
@@ -2434,67 +2574,81 @@ function DashboardPage({
     setErrorMessage("");
     setProfileWarning("");
 
-    const {
-      data,
-      error,
-    } = await supabase
-      .from("profiles")
-      .update({
-        blood_group:
-          bloodGroup || null,
+    try {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("profiles")
+        .update({
+          blood_group:
+            bloodGroup || null,
 
-        phone:
-          phone || null,
+          phone:
+            phone || null,
 
-        location:
-          location || null,
+          location:
+            location || null,
 
-        availability,
+          availability,
 
-        last_donation_date:
-          lastDonationDate || null,
-      })
-      .eq("id", user.id)
-      .select()
-      .maybeSingle();
+          last_donation_date:
+            lastDonationDate || null,
+        })
+        .eq("id", user.id)
+        .select()
+        .maybeSingle();
 
-    if (error) {
+      if (error) {
+        console.error(
+          "Profile update error:",
+          error
+        );
+
+        setErrorMessage(
+          "Unable to save your profile right now. Please try again."
+        );
+
+        return;
+      }
+
+      if (data) {
+        setProfile(data);
+      } else {
+        setProfile((previous) => ({
+          ...(previous || {}),
+          blood_group:
+            bloodGroup || null,
+          phone:
+            phone || null,
+          location:
+            location || null,
+          availability,
+          last_donation_date:
+            lastDonationDate || null,
+        }));
+      }
+
+      setSaveMessage(
+        "Donor profile updated successfully ❤️"
+      );
+    } catch (error) {
       console.error(
-        "Profile update error:",
+        "Unexpected profile update error:",
         error
       );
 
       setErrorMessage(
         "Unable to save your profile right now. Please try again."
       );
-
+    } finally {
       setSaving(false);
-      return;
     }
-
-    if (data) {
-      setProfile(data);
-    } else {
-      setProfile((previous) => ({
-        ...(previous || {}),
-        blood_group:
-          bloodGroup || null,
-        phone:
-          phone || null,
-        location:
-          location || null,
-        availability,
-        last_donation_date:
-          lastDonationDate || null,
-      }));
-    }
-
-    setSaveMessage(
-      "Donor profile updated successfully ❤️"
-    );
-
-    setSaving(false);
   };
+
+  /* =========================================================
+     REQUEST GPS LOCATION
+  ========================================================= */
 
   const handleRequestLocation = () => {
     if (!navigator.geolocation) {
@@ -2524,6 +2678,7 @@ function DashboardPage({
         }));
 
         setRequestGettingLocation(false);
+
         setRequestSuccess(
           "Current location detected. It will be attached to your blood request 📍"
         );
@@ -2536,11 +2691,17 @@ function DashboardPage({
             "Location permission was denied. Please allow location access in your browser."
           );
         } else if (geoError.code === 2) {
-          setRequestError("Your location could not be detected.");
+          setRequestError(
+            "Your location could not be detected."
+          );
         } else if (geoError.code === 3) {
-          setRequestError("Location request timed out. Please try again.");
+          setRequestError(
+            "Location request timed out. Please try again."
+          );
         } else {
-          setRequestError("Unable to get your current location.");
+          setRequestError(
+            "Unable to get your current location."
+          );
         }
       },
       {
@@ -2551,48 +2712,545 @@ function DashboardPage({
     );
   };
 
+  /* =========================================================
+     FETCH MY BLOOD REQUESTS
+  ========================================================= */
+
   const fetchMyRequests = async () => {
     if (!user?.id) return;
 
     setRequestsLoading(true);
 
-    const {
-      data,
-      error,
-    } = await supabase
-      .from("blood_requests")
-      .select(
-        "id, blood_group, location, latitude, longitude, required_date, urgency, message, status, created_at"
-      )
-      .eq("requester_id", user.id)
-      .order("created_at", { ascending: false });
+    try {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("blood_requests")
+        .select(
+          "id, blood_group, location, latitude, longitude, required_date, urgency, message, status, created_at"
+        )
+        .eq("requester_id", user.id)
+        .order("created_at", {
+          ascending: false,
+        });
 
-    if (error) {
-      console.error("Blood requests fetch error:", error);
+      if (error) {
+        console.error(
+          "Blood requests fetch error:",
+          error
+        );
+
+        setMyRequests([]);
+        return;
+      }
+
+      setMyRequests(data || []);
+    } catch (error) {
+      console.error(
+        "Unexpected blood requests fetch error:",
+        error
+      );
+
+      setMyRequests([]);
+    } finally {
       setRequestsLoading(false);
-      return;
     }
-
-    setMyRequests(data || []);
-    setRequestsLoading(false);
   };
 
   useEffect(() => {
     if (!user?.id) return;
+
     fetchMyRequests();
   }, [user?.id]);
 
-  useEffect(() => {
-    if (!requestBloodGroup && bloodGroup) {
-      setRequestBloodGroup(bloodGroup);
+  /* =========================================================
+     DONOR MATCHING
+  ========================================================= */
+
+  const fetchMatchingRequests = async () => {
+    if (
+      !user?.id ||
+      accountType !== "donor"
+    ) {
+      setMatchingRequests([]);
+      return;
     }
-  }, [bloodGroup, requestBloodGroup]);
+
+    if (!bloodGroup) {
+      setMatchingRequests([]);
+      setMatchingError(
+        "Complete your blood group in your profile to see compatible requests."
+      );
+      return;
+    }
+
+    setMatchingLoading(true);
+    setMatchingError("");
+
+    try {
+      const donorLatitude =
+        profile?.latitude != null &&
+        String(profile.latitude).trim() !== ""
+          ? Number(profile.latitude)
+          : null;
+
+      const donorLongitude =
+        profile?.longitude != null &&
+        String(profile.longitude).trim() !== ""
+          ? Number(profile.longitude)
+          : null;
+
+      const {
+        data,
+        error,
+      } = await supabase.rpc(
+        "get_matching_blood_requests",
+        {
+          donor_blood_group: bloodGroup,
+          donor_latitude:
+            Number.isFinite(donorLatitude)
+              ? donorLatitude
+              : null,
+          donor_longitude:
+            Number.isFinite(donorLongitude)
+              ? donorLongitude
+              : null,
+        }
+      );
+
+      if (error) {
+        console.error(
+          "Donor matching error:",
+          error
+        );
+
+        setMatchingRequests([]);
+
+        setMatchingError(
+          "Unable to load nearby blood requests right now. Please try again."
+        );
+
+        return;
+      }
+
+      setMatchingRequests(
+        data || []
+      );
+    } catch (error) {
+      console.error(
+        "Unexpected donor matching error:",
+        error
+      );
+
+      setMatchingRequests([]);
+
+      setMatchingError(
+        "Unable to load nearby blood requests right now. Please try again."
+      );
+    } finally {
+      setMatchingLoading(false);
+    }
+  };
+
+  /* =========================================================
+     DONOR RESPONSE FETCH
+  ========================================================= */
+
+  const fetchDonationResponses = async () => {
+    if (!user?.id || accountType !== "donor") {
+      setDonationResponses([]);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("blood_request_responses")
+        .select("id, request_id, donor_id, status, created_at")
+        .eq("donor_id", user.id);
+
+      if (error) {
+        console.error("Donation responses fetch error:", error);
+        setDonationResponses([]);
+        return;
+      }
+
+      setDonationResponses(data || []);
+    } catch (error) {
+      console.error("Unexpected donation responses error:", error);
+      setDonationResponses([]);
+    }
+  };
+
+  /* =========================================================
+     RECIPIENT RESPONSE FETCH
+  ========================================================= */
+
+  const fetchRecipientResponses = async () => {
+    if (!user?.id || accountType !== "recipient") {
+      setRecipientResponses([]);
+      return;
+    }
+
+    setRecipientResponsesLoading(true);
+
+    try {
+      // Primary source: server-side RPC. This keeps donor GPS/contact data private.
+      const { data: rpcData, error: rpcError } = await supabase.rpc(
+        "get_request_donation_responses",
+        { recipient_id: user.id }
+      );
+
+      if (!rpcError && Array.isArray(rpcData) && rpcData.length > 0) {
+        setRecipientResponses(rpcData);
+        return;
+      }
+
+      if (rpcError) {
+        console.error("Recipient responses RPC error:", rpcError);
+      }
+
+      // Fallback: verify that the response row exists even when the RPC has
+      // not been updated correctly in Supabase yet. We intentionally do not
+      // expose donor profile/GPS data in this fallback.
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("blood_request_responses")
+        .select(`
+          id,
+          request_id,
+          status,
+          created_at,
+          blood_requests!inner(
+            requester_id
+          )
+        `)
+        .eq("blood_requests.requester_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (fallbackError) {
+        console.error("Recipient responses fallback error:", fallbackError);
+        setRecipientResponses([]);
+        return;
+      }
+
+      setRecipientResponses(
+        (fallbackData || []).map((response) => ({
+          response_id: response.id,
+          request_id: response.request_id,
+          status: response.status,
+          created_at: response.created_at,
+          distance_km: null,
+        }))
+      );
+    } catch (error) {
+      console.error("Unexpected recipient responses error:", error);
+      setRecipientResponses([]);
+    } finally {
+      setRecipientResponsesLoading(false);
+    }
+  };
+
+  /* =========================================================
+     PRIVATE DONATION CHAT
+  ========================================================= */
+
+  const fetchChatMessages = async (responseId) => {
+    if (!responseId || !user?.id) return;
+
+    setChatLoading(true);
+    setChatError("");
+
+    try {
+      const { data, error } = await supabase
+        .from("donation_messages")
+        .select("id, response_id, sender_id, message, created_at")
+        .eq("response_id", responseId)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Chat fetch error:", error);
+        setChatMessages([]);
+        setChatError("Unable to load this conversation right now. Please try again.");
+        return;
+      }
+
+      setChatMessages(data || []);
+    } catch (error) {
+      console.error("Unexpected chat fetch error:", error);
+      setChatMessages([]);
+      setChatError("Unable to load this conversation right now. Please try again.");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const openDonationChat = async (responseLike) => {
+    if (!user?.id || !responseLike?.response_id) return;
+
+    setChatError("");
+
+    try {
+      // Recipient RPC results intentionally contain no donor contact details.
+      // Fetch only the response UUID and donor UUID needed to authorize the chat.
+      const { data, error } = await supabase
+        .from("blood_request_responses")
+        .select("id, request_id, donor_id, status")
+        .eq("id", responseLike.response_id)
+        .maybeSingle();
+
+      if (error || !data) {
+        console.error("Open chat response error:", error);
+        setChatError("This conversation is not available right now.");
+        return;
+      }
+
+      const response = {
+        ...responseLike,
+        response_id: data.id,
+        request_id: data.request_id,
+        donor_id: data.donor_id,
+        status: data.status,
+      };
+
+      setSelectedResponse(response);
+      setChatOpen(true);
+      await fetchChatMessages(data.id);
+    } catch (error) {
+      console.error("Unexpected open chat error:", error);
+      setChatError("Unable to open this conversation right now.");
+    }
+  };
+
+  const closeDonationChat = () => {
+    setChatOpen(false);
+    setSelectedResponse(null);
+    setChatMessages([]);
+    setChatText("");
+    setChatError("");
+  };
+
+  const handleSendChatMessage = async (e) => {
+    e?.preventDefault?.();
+
+    const message = chatText.trim();
+
+    if (!user?.id || !selectedResponse?.response_id || !message) {
+      return;
+    }
+
+    if (message.length > 1000) {
+      setChatError("Please keep messages under 1000 characters.");
+      return;
+    }
+
+    setChatSending(true);
+    setChatError("");
+
+    try {
+      const { data, error } = await supabase
+        .from("donation_messages")
+        .insert([
+          {
+            response_id: selectedResponse.response_id,
+            sender_id: user.id,
+            message,
+          },
+        ])
+        .select("id, response_id, sender_id, message, created_at")
+        .maybeSingle();
+
+      if (error) {
+        console.error("Chat send error:", error);
+        setChatError("Your message could not be sent. Please try again.");
+        return;
+      }
+
+      if (data) {
+        setChatMessages((previous) => [
+          ...previous,
+          data,
+        ]);
+        setChatText("");
+      }
+    } catch (error) {
+      console.error("Unexpected chat send error:", error);
+      setChatError("Your message could not be sent. Please try again.");
+    } finally {
+      setChatSending(false);
+    }
+  };
+
+  const handleAcceptDonor = async (responseId) => {
+    if (!user?.id || !responseId || accountType !== "recipient") {
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc(
+        "accept_donation_response",
+        { response_id: responseId }
+      );
+
+      if (error) {
+        console.error("Accept donor error:", error);
+        setChatError("Unable to accept this donor right now. Please try again.");
+        return;
+      }
+
+      if (data === false) {
+        setChatError("This donor response is no longer available.");
+        return;
+      }
+
+      await fetchRecipientResponses();
+    } catch (error) {
+      console.error("Unexpected accept donor error:", error);
+      setChatError("Unable to accept this donor right now. Please try again.");
+    }
+  };
 
   useEffect(() => {
-    if (!requestLocation && location) {
-      setRequestLocation(location);
+    if (!chatOpen || !selectedResponse?.response_id) return;
+
+    const interval = setInterval(() => {
+      fetchChatMessages(selectedResponse.response_id);
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [chatOpen, selectedResponse?.response_id]);
+
+  /* =========================================================
+     I CAN DONATE
+  ========================================================= */
+
+  const handleICanDonate = async (requestId) => {
+    if (!user?.id || !requestId) return;
+
+    setDonationLoading(true);
+    setDonationError("");
+
+    try {
+      const alreadyResponded = donationResponses.some(
+        (response) => response.request_id === requestId
+      );
+
+      if (alreadyResponded) {
+        setDonationError(
+          "You have already responded to this blood request."
+        );
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("blood_request_responses")
+        .insert([
+          {
+            request_id: requestId,
+            donor_id: user.id,
+            status: "Interested",
+          },
+        ])
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        console.error("I Can Donate error:", error);
+
+        if (error.code === "23505") {
+          setDonationError(
+            "You have already responded to this request."
+          );
+        } else {
+          setDonationError(
+            "Unable to send your donation response right now. Please try again."
+          );
+        }
+
+        return;
+      }
+
+      if (data) {
+        setDonationResponses((previous) => [data, ...previous]);
+      }
+    } catch (error) {
+      console.error("Unexpected I Can Donate error:", error);
+      setDonationError(
+        "Unable to send your donation response right now. Please try again."
+      );
+    } finally {
+      setDonationLoading(false);
     }
-  }, [location, requestLocation]);
+  };
+
+  useEffect(() => {
+    if (accountType !== "donor") return;
+
+    fetchDonationResponses();
+  }, [user?.id, accountType]);
+
+  useEffect(() => {
+    if (accountType !== "recipient" || !user?.id) return;
+
+    fetchRecipientResponses();
+
+    // Refresh periodically so a recipient sees a donor response without
+    // needing to leave the dashboard or manually refresh the page.
+    const interval = setInterval(() => {
+      fetchRecipientResponses();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [user?.id, accountType, myRequests.length]);
+
+  useEffect(() => {
+    if (accountType !== "donor") {
+      return;
+    }
+
+    fetchMatchingRequests();
+  }, [
+    user?.id,
+    accountType,
+    bloodGroup,
+    profile?.latitude,
+    profile?.longitude,
+  ]);
+
+  /* =========================================================
+     AUTO-FILL REQUEST DETAILS
+  ========================================================= */
+
+  useEffect(() => {
+    if (
+      !requestBloodGroup &&
+      bloodGroup
+    ) {
+      setRequestBloodGroup(
+        bloodGroup
+      );
+    }
+  }, [
+    bloodGroup,
+    requestBloodGroup,
+  ]);
+
+  useEffect(() => {
+    if (
+      !requestLocation &&
+      location
+    ) {
+      setRequestLocation(
+        location
+      );
+    }
+  }, [
+    location,
+    requestLocation,
+  ]);
+
+  /* =========================================================
+     CREATE BLOOD REQUEST
+  ========================================================= */
 
   const handleCreateBloodRequest = async (e) => {
     e.preventDefault();
@@ -2602,13 +3260,19 @@ function DashboardPage({
     setRequestError("");
 
     if (!requestBloodGroup) {
-      setRequestError("Please select the required blood group.");
+      setRequestError(
+        "Please select the required blood group."
+      );
+
       setRequestLoading(false);
       return;
     }
 
     if (!requestLocation.trim()) {
-      setRequestError("Please enter the location where blood support is needed.");
+      setRequestError(
+        "Please enter the location where blood support is needed."
+      );
+
       setRequestLoading(false);
       return;
     }
@@ -2623,90 +3287,150 @@ function DashboardPage({
         ? String(profile.longitude)
         : null;
 
-    const {
-      data,
-      error,
-    } = await supabase
-      .from("blood_requests")
-      .insert([
-        {
-          requester_id: user.id,
-          blood_group: requestBloodGroup,
-          location: requestLocation.trim(),
-          latitude,
-          longitude,
-          required_date: requestRequiredDate || null,
-          urgency: requestUrgency,
-          message: requestMessage.trim() || null,
-          status: "Open",
-        },
-      ])
-      .select()
-      .maybeSingle();
+    try {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("blood_requests")
+        .insert([
+          {
+            requester_id: user.id,
+            blood_group: requestBloodGroup,
+            location: requestLocation.trim(),
+            latitude,
+            longitude,
+            required_date:
+              requestRequiredDate || null,
+            urgency: requestUrgency,
+            message:
+              requestMessage.trim() ||
+              null,
+            status: "Open",
+          },
+        ])
+        .select()
+        .maybeSingle();
 
-    if (error) {
-      console.error("Blood request create error:", error);
+      if (error) {
+        console.error(
+          "Blood request create error:",
+          error
+        );
+
+        setRequestError(
+          `Unable to create your blood request: ${
+            error.message ||
+            "Unknown Supabase error"
+          }`
+        );
+
+        return;
+      }
+
+      setRequestSuccess(
+        "Your blood request has been created successfully. We can now use it for donor matching. ❤️"
+      );
+
+      setRequestRequiredDate("");
+      setRequestUrgency("Normal");
+      setRequestMessage("");
+
+      if (data) {
+        setMyRequests((previous) => [
+          data,
+          ...previous,
+        ]);
+      } else {
+        await fetchMyRequests();
+      }
+    } catch (error) {
+      console.error(
+        "Unexpected blood request create error:",
+        error
+      );
+
       setRequestError(
         `Unable to create your blood request: ${
-          error.message || "Unknown Supabase error"
+          error.message ||
+          "Unknown error"
         }`
       );
+    } finally {
       setRequestLoading(false);
-      return;
     }
-
-    setRequestSuccess(
-      "Your blood request has been created successfully. We can now use it for donor matching. ❤️"
-    );
-
-    setRequestRequiredDate("");
-    setRequestUrgency("Normal");
-    setRequestMessage("");
-
-    if (data) {
-      setMyRequests((previous) => [
-        data,
-        ...previous,
-      ]);
-    } else {
-      await fetchMyRequests();
-    }
-
-    setRequestLoading(false);
   };
 
-  const handleCancelBloodRequest = async (requestId) => {
+  /* =========================================================
+     CANCEL BLOOD REQUEST
+  ========================================================= */
+
+  const handleCancelBloodRequest = async (
+    requestId
+  ) => {
     if (!requestId) return;
 
     setRequestError("");
     setRequestSuccess("");
 
-    const { error } = await supabase
-      .from("blood_requests")
-      .update({ status: "Cancelled" })
-      .eq("id", requestId)
-      .eq("requester_id", user.id);
+    try {
+      const { error } =
+        await supabase
+          .from("blood_requests")
+          .update({
+            status: "Cancelled",
+          })
+          .eq("id", requestId)
+          .eq("requester_id", user.id);
 
-    if (error) {
-      console.error("Blood request cancel error:", error);
+      if (error) {
+        console.error(
+          "Blood request cancel error:",
+          error
+        );
+
+        setRequestError(
+          `Unable to cancel this request: ${
+            error.message ||
+            "Unknown Supabase error"
+          }`
+        );
+
+        return;
+      }
+
+      setMyRequests((previous) =>
+        previous.map((request) =>
+          request.id === requestId
+            ? {
+                ...request,
+                status: "Cancelled",
+              }
+            : request
+        )
+      );
+
+      setRequestSuccess(
+        "Blood request cancelled successfully."
+      );
+    } catch (error) {
+      console.error(
+        "Unexpected blood request cancel error:",
+        error
+      );
+
       setRequestError(
         `Unable to cancel this request: ${
-          error.message || "Unknown Supabase error"
+          error.message ||
+          "Unknown error"
         }`
       );
-      return;
     }
-
-    setMyRequests((previous) =>
-      previous.map((request) =>
-        request.id === requestId
-          ? { ...request, status: "Cancelled" }
-          : request
-      )
-    );
-
-    setRequestSuccess("Blood request cancelled successfully.");
   };
+
+  /* =========================================================
+     LOGOUT
+  ========================================================= */
 
   const handleLogout = async () => {
     const { error } =
@@ -2722,6 +3446,10 @@ function DashboardPage({
     onLogout();
     navigate("home");
   };
+
+  /* =========================================================
+     DISPLAY DATA
+  ========================================================= */
 
   const displayName =
     profile?.full_name ||
@@ -2746,11 +3474,6 @@ function DashboardPage({
           }
         )
       : "Recently";
-
-  const accountType =
-    profile?.account_type ||
-    user?.user_metadata?.role ||
-    "donor";
 
   const formattedAccountType =
     accountType
@@ -2785,6 +3508,10 @@ function DashboardPage({
       profile?.latitude,
       profile?.longitude,
     ]);
+
+  /* =========================================================
+     DASHBOARD LOADING
+  ========================================================= */
 
   if (loading) {
     return (
@@ -2862,6 +3589,7 @@ function DashboardPage({
       {profileWarning && (
         <div className="dashboard-warning">
           <span>!</span>
+
           <div>
             <strong>
               Profile information
@@ -3196,7 +3924,7 @@ function DashboardPage({
 
               <input
                 type="checkbox"
-                checked={availability}
+                checked={Boolean(availability)}
                 onChange={(e) =>
                   setAvailability(
                     e.target.checked
@@ -3428,7 +4156,9 @@ function DashboardPage({
                   <select
                     value={requestBloodGroup}
                     onChange={(e) =>
-                      setRequestBloodGroup(e.target.value)
+                      setRequestBloodGroup(
+                        e.target.value
+                      )
                     }
                     required
                   >
@@ -3436,14 +4166,37 @@ function DashboardPage({
                       Select blood group
                     </option>
 
-                    <option value="A+">A+</option>
-                    <option value="A-">A-</option>
-                    <option value="B+">B+</option>
-                    <option value="B-">B-</option>
-                    <option value="AB+">AB+</option>
-                    <option value="AB-">AB-</option>
-                    <option value="O+">O+</option>
-                    <option value="O-">O-</option>
+                    <option value="A+">
+                      A+
+                    </option>
+
+                    <option value="A-">
+                      A-
+                    </option>
+
+                    <option value="B+">
+                      B+
+                    </option>
+
+                    <option value="B-">
+                      B-
+                    </option>
+
+                    <option value="AB+">
+                      AB+
+                    </option>
+
+                    <option value="AB-">
+                      AB-
+                    </option>
+
+                    <option value="O+">
+                      O+
+                    </option>
+
+                    <option value="O-">
+                      O-
+                    </option>
                   </select>
                 </label>
 
@@ -3453,12 +4206,22 @@ function DashboardPage({
                   <select
                     value={requestUrgency}
                     onChange={(e) =>
-                      setRequestUrgency(e.target.value)
+                      setRequestUrgency(
+                        e.target.value
+                      )
                     }
                   >
-                    <option value="Normal">Normal</option>
-                    <option value="Urgent">Urgent</option>
-                    <option value="Emergency">Emergency</option>
+                    <option value="Normal">
+                      Normal
+                    </option>
+
+                    <option value="Urgent">
+                      Urgent
+                    </option>
+
+                    <option value="Emergency">
+                      Emergency
+                    </option>
                   </select>
                 </label>
 
@@ -3471,7 +4234,9 @@ function DashboardPage({
                   type="text"
                   value={requestLocation}
                   onChange={(e) =>
-                    setRequestLocation(e.target.value)
+                    setRequestLocation(
+                      e.target.value
+                    )
                   }
                   placeholder="e.g. Dehradun, Uttarakhand"
                   required
@@ -3485,7 +4250,9 @@ function DashboardPage({
                 disabled={requestGettingLocation}
               >
                 <span className="location-button-icon">
-                  {requestGettingLocation ? "◌" : "⌖"}
+                  {requestGettingLocation
+                    ? "◌"
+                    : "⌖"}
                 </span>
 
                 <span>
@@ -3514,9 +4281,15 @@ function DashboardPage({
                   type="date"
                   value={requestRequiredDate}
                   onChange={(e) =>
-                    setRequestRequiredDate(e.target.value)
+                    setRequestRequiredDate(
+                      e.target.value
+                    )
                   }
-                  min={new Date().toISOString().split("T")[0]}
+                  min={
+                    new Date()
+                      .toISOString()
+                      .split("T")[0]
+                  }
                 />
               </label>
 
@@ -3526,7 +4299,9 @@ function DashboardPage({
                 <textarea
                   value={requestMessage}
                   onChange={(e) =>
-                    setRequestMessage(e.target.value)
+                    setRequestMessage(
+                      e.target.value
+                    )
                   }
                   placeholder="Add hospital details, units needed, or any other useful information..."
                   rows="5"
@@ -3573,6 +4348,7 @@ function DashboardPage({
 
           {requestsLoading ? (
             <Reveal className="empty-request-card">
+
               <div className="nearby-visual">
                 <div className="nearby-ring ring-one"></div>
                 <div className="nearby-ring ring-two"></div>
@@ -3587,9 +4363,11 @@ function DashboardPage({
               <p>
                 Please wait while we load your blood request history.
               </p>
+
             </Reveal>
           ) : myRequests.length === 0 ? (
             <Reveal className="empty-request-card">
+
               <div className="nearby-visual">
                 <div className="nearby-ring ring-one"></div>
                 <div className="nearby-ring ring-two"></div>
@@ -3604,19 +4382,27 @@ function DashboardPage({
               <p>
                 Create your first blood request above when support is needed.
               </p>
+
             </Reveal>
           ) : (
             <div className="donor-dashboard-grid">
+
               {myRequests.map((request) => (
                 <Reveal key={request.id}>
+
                   <div className="dashboard-info-card donor-welcome-card">
 
                     <div className="donor-card-icon">
-                      {request.urgency === "Emergency" ? "🚨" : "🩸"}
+                      {request.urgency ===
+                      "Emergency"
+                        ? "🚨"
+                        : "🩸"}
                     </div>
 
                     <p className="eyebrow">
-                      {request.urgency || "NORMAL"} REQUEST
+                      {request.urgency ||
+                        "NORMAL"}{" "}
+                      REQUEST
                     </p>
 
                     <h2>
@@ -3629,7 +4415,18 @@ function DashboardPage({
 
                     {request.required_date && (
                       <p>
-                        📅 Needed by {new Date(request.required_date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}
+                        📅 Needed by{" "}
+                        {new Date(
+                          request.required_date +
+                            "T00:00:00"
+                        ).toLocaleDateString(
+                          "en-IN",
+                          {
+                            day: "numeric",
+                            month: "long",
+                            year: "numeric",
+                          }
+                        )}
                       </p>
                     )}
 
@@ -3640,33 +4437,198 @@ function DashboardPage({
                     )}
 
                     <div className="availability-status">
+
                       <span
                         className="status-dot"
                         style={{
                           background:
-                            request.status === "Open"
+                            request.status ===
+                            "Open"
                               ? "#7ee787"
                               : "#ffb4b4",
                         }}
                       ></span>
 
                       <span>
-                        Status: {request.status}
+                        Status:{" "}
+                        {request.status}
                       </span>
+
                     </div>
 
-                    {request.status === "Open" && (
+                    {request.status ===
+                      "Open" && (
                       <button
                         type="button"
                         className="secondary-button"
                         onClick={() =>
-                          handleCancelBloodRequest(request.id)
+                          handleCancelBloodRequest(
+                            request.id
+                          )
                         }
                       >
                         Cancel request
                       </button>
                     )}
 
+                  </div>
+
+                </Reveal>
+              ))}
+
+            </div>
+          )}
+
+        </section>
+      )}
+
+      {/* DONOR RESPONSES */}
+
+      {accountType === "recipient" && (
+        <section className="donor-request-section">
+
+          <Reveal className="section-heading">
+            <div>
+              <p className="eyebrow">
+                DONOR RESPONSES
+              </p>
+
+              <h2>
+                People willing to donate
+              </h2>
+            </div>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={fetchRecipientResponses}
+              disabled={recipientResponsesLoading}
+            >
+              {recipientResponsesLoading
+                ? "Refreshing..."
+                : "Refresh responses ↻"}
+            </button>
+          </Reveal>
+
+          {recipientResponsesLoading ? (
+            <Reveal className="empty-request-card">
+              <div className="nearby-visual">
+                <div className="nearby-ring ring-one"></div>
+                <div className="nearby-ring ring-two"></div>
+                <span>♥</span>
+                <div className="nearby-pulse"></div>
+              </div>
+
+              <h3>
+                Checking donor responses...
+              </h3>
+
+              <p>
+                Please wait while we check for new donation responses.
+              </p>
+            </Reveal>
+          ) : recipientResponses.length === 0 ? (
+            <Reveal className="empty-request-card">
+              <div className="nearby-visual">
+                <div className="nearby-ring ring-one"></div>
+                <div className="nearby-ring ring-two"></div>
+                <span>♥</span>
+                <div className="nearby-pulse"></div>
+              </div>
+
+              <h3>
+                No donor responses yet.
+              </h3>
+
+              <p>
+                When a compatible donor chooses "I Can Donate", their response will appear here.
+              </p>
+            </Reveal>
+          ) : (
+            <div className="donor-dashboard-grid">
+              {recipientResponses.map((response) => (
+                <Reveal key={response.response_id}>
+                  <div className="dashboard-info-card donor-welcome-card">
+                    <div className="donor-card-icon">
+                      ❤️
+                    </div>
+
+                    <p className="eyebrow">
+                      DONOR RESPONSE
+                    </p>
+
+                    <h2>
+                      A donor is willing to donate
+                    </h2>
+
+                    <p>
+                      🩸 Compatible donor response
+                    </p>
+
+                    {response.distance_km != null &&
+                      Number.isFinite(Number(response.distance_km)) && (
+                        <p>
+                          📏 {Number(response.distance_km).toFixed(1)} km away
+                        </p>
+                      )}
+
+                    <div className="availability-status">
+                      <span
+                        className="status-dot"
+                        style={{
+                          background:
+                            response.status === "Accepted"
+                              ? "#7ee787"
+                              : "#ffd166",
+                        }}
+                      ></span>
+
+                      <span>
+                        {response.status === "Accepted"
+                          ? "Donor accepted — you can coordinate now"
+                          : "Donation interest received"}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "10px",
+                        marginTop: "16px",
+                      }}
+                    >
+                      {response.status !== "Accepted" && (
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={() =>
+                            handleAcceptDonor(response.response_id)
+                          }
+                        >
+                          Accept donor
+                          <span>✓</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => openDonationChat(response)}
+                      >
+                        💬 Open private chat
+                      </button>
+                    </div>
+
+                    <p
+                      style={{
+                        marginTop: "12px",
+                        opacity: 0.75,
+                      }}
+                    >
+                      🔒 No phone numbers or exact GPS locations are shared.
+                      Use the private chat to agree on a safe public meeting point.
+                    </p>
                   </div>
                 </Reveal>
               ))}
@@ -3676,58 +4638,449 @@ function DashboardPage({
         </section>
       )}
 
-      {/* REQUESTS */}
+      {/* DONOR MATCHING */}
 
-      <section className="donor-request-section">
+      {accountType === "donor" && (
+        <section className="donor-request-section">
 
-        <Reveal className="section-heading">
+          <Reveal className="section-heading">
 
-          <div>
-            <p className="eyebrow">
-              NEXT STEP
-            </p>
+            <div>
+              <p className="eyebrow">
+                SMART MATCHING
+              </p>
 
-            <h2>
-              Nearby blood requests
-            </h2>
-          </div>
+              <h2>
+                Nearby blood requests
+              </h2>
+            </div>
 
-        </Reveal>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={
+                fetchMatchingRequests
+              }
+              disabled={matchingLoading}
+            >
+              {matchingLoading
+                ? "Refreshing..."
+                : "Refresh matches ↻"}
+            </button>
 
-        <Reveal
-          className="empty-request-card"
-          delay={100}
+          </Reveal>
+
+          {donationError && (
+            <div className="error-message">
+              <span>!</span>
+              {donationError}
+            </div>
+          )}
+
+          {matchingLoading ? (
+            <Reveal
+              className="empty-request-card"
+              delay={100}
+            >
+
+              <div className="nearby-visual">
+                <div className="nearby-ring ring-one"></div>
+                <div className="nearby-ring ring-two"></div>
+                <span>⌖</span>
+                <div className="nearby-pulse"></div>
+              </div>
+
+              <h3>
+                Finding compatible requests...
+              </h3>
+
+              <p>
+                We are checking blood-group compatibility
+                and nearby request locations.
+              </p>
+
+            </Reveal>
+          ) : matchingError ? (
+            <Reveal
+              className="empty-request-card"
+              delay={100}
+            >
+
+              <div className="nearby-visual">
+                <div className="nearby-ring ring-one"></div>
+                <div className="nearby-ring ring-two"></div>
+                <span>!</span>
+                <div className="nearby-pulse"></div>
+              </div>
+
+              <h3>
+                Complete your donor profile
+              </h3>
+
+              <p>
+                {matchingError}
+              </p>
+
+            </Reveal>
+          ) : matchingRequests.length === 0 ? (
+            <Reveal
+              className="empty-request-card"
+              delay={100}
+            >
+
+              <div className="nearby-visual">
+                <div className="nearby-ring ring-one"></div>
+                <div className="nearby-ring ring-two"></div>
+                <span>⌖</span>
+                <div className="nearby-pulse"></div>
+              </div>
+
+              <h3>
+                No compatible requests nearby yet.
+              </h3>
+
+              <p>
+                We will show open requests that are
+                compatible with your blood group here.
+                Check again later for new requests.
+              </p>
+
+            </Reveal>
+          ) : (
+            <div className="donor-dashboard-grid">
+
+              {matchingRequests.map(
+                (request) => (
+                  <Reveal key={request.id}>
+
+                    <div className="dashboard-info-card donor-welcome-card">
+
+                      <div className="donor-card-icon">
+                        {request.urgency ===
+                          "Critical" ||
+                        request.urgency ===
+                          "Emergency"
+                          ? "🚨"
+                          : "🩸"}
+                      </div>
+
+                      <p className="eyebrow">
+                        {request.urgency ||
+                          "NORMAL"}{" "}
+                        REQUEST
+                      </p>
+
+                      <h2>
+                        {request.blood_group} blood needed
+                      </h2>
+
+                      <p>
+                        📍 Nearby support area
+                      </p>
+
+                      {request.distance_km !=
+                        null &&
+                        Number.isFinite(
+                          Number(
+                            request.distance_km
+                          )
+                        ) && (
+                          <p>
+                            📏{" "}
+                            {Number(
+                              request.distance_km
+                            ).toFixed(1)}{" "}
+                            km away
+                          </p>
+                        )}
+
+                      {request.required_date && (
+                        <p>
+                          📅 Needed by{" "}
+                          {new Date(
+                            request.required_date +
+                              "T00:00:00"
+                          ).toLocaleDateString(
+                            "en-IN",
+                            {
+                              day: "numeric",
+                              month: "long",
+                              year: "numeric",
+                            }
+                          )}
+                        </p>
+                      )}
+
+                      {request.message && (
+                        <p>
+                          {request.message}
+                        </p>
+                      )}
+
+                      <div className="availability-status">
+
+                        <span
+                          className="status-dot"
+                          style={{
+                            background:
+                              "#7ee787",
+                          }}
+                        ></span>
+
+                        <span>
+                          Open request • Compatible
+                          with {bloodGroup}
+                        </span>
+
+                      </div>
+
+                      {(() => {
+                        const matchingResponse = donationResponses.find(
+                          (response) => response.request_id === request.id
+                        );
+
+                        return matchingResponse ? (
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: "10px",
+                              marginTop: "4px",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              className="primary-button"
+                              disabled
+                            >
+                              ✓ Donation response sent
+                            </button>
+
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() =>
+                                openDonationChat({
+                                  response_id: matchingResponse.id,
+                                  request_id: matchingResponse.request_id,
+                                  status: matchingResponse.status,
+                                  distance_km: request.distance_km,
+                                })
+                              }
+                            >
+                              💬 Open private chat
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="primary-button"
+                            onClick={() => handleICanDonate(request.id)}
+                            disabled={donationLoading}
+                          >
+                            {donationLoading ? "Sending..." : "I Can Donate"}
+                            {!donationLoading && <span>→</span>}
+                          </button>
+                        );
+                      })()}
+
+                    </div>
+
+                  </Reveal>
+                )
+              )}
+
+            </div>
+          )}
+
+        </section>
+      )}
+
+      {chatOpen && selectedResponse && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Private donation chat"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(10, 12, 20, 0.72)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "18px",
+          }}
         >
+          <div
+            style={{
+              width: "min(680px, 100%)",
+              maxHeight: "90vh",
+              display: "flex",
+              flexDirection: "column",
+              background: "var(--surface, #fff)",
+              color: "var(--text, #171717)",
+              borderRadius: "24px",
+              overflow: "hidden",
+              boxShadow: "0 24px 80px rgba(0,0,0,.28)",
+            }}
+          >
+            <div
+              style={{
+                padding: "18px 20px",
+                borderBottom: "1px solid rgba(127,127,127,.18)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+              }}
+            >
+              <div>
+                <p className="eyebrow" style={{ margin: 0 }}>
+                  PRIVATE DONATION CHAT
+                </p>
+                <h2 style={{ margin: "4px 0 0" }}>
+                  Coordinate the donation 💬
+                </h2>
+                {selectedResponse.distance_km != null &&
+                  Number.isFinite(Number(selectedResponse.distance_km)) && (
+                    <p style={{ margin: "5px 0 0", opacity: 0.72 }}>
+                      📏 Approximately {Number(selectedResponse.distance_km).toFixed(1)} km apart
+                    </p>
+                  )}
+              </div>
 
-          <div className="nearby-visual">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={closeDonationChat}
+                aria-label="Close private chat"
+              >
+                ✕
+              </button>
+            </div>
 
-            <div className="nearby-ring ring-one"></div>
-            <div className="nearby-ring ring-two"></div>
+            <div
+              style={{
+                padding: "12px 20px",
+                background: "rgba(126, 231, 135, 0.10)",
+                borderBottom: "1px solid rgba(127,127,127,.12)",
+              }}
+            >
+              <strong>📍 Meeting point</strong>
+              <span style={{ marginLeft: "8px", opacity: 0.78 }}>
+                Agree on a hospital, blood bank, clinic, or other safe public place in chat.
+              </span>
+            </div>
 
-            <span>⌖</span>
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "18px 20px",
+                minHeight: "280px",
+                maxHeight: "48vh",
+              }}
+            >
+              {chatLoading ? (
+                <p style={{ textAlign: "center", opacity: 0.7 }}>
+                  Loading conversation...
+                </p>
+              ) : chatMessages.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 10px", opacity: 0.72 }}>
+                  <div style={{ fontSize: "34px" }}>💬</div>
+                  <h3>Start the conversation</h3>
+                  <p>Ask where to meet, confirm timing, or share the blood-bank details.</p>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {chatMessages.map((message) => {
+                    const mine = message.sender_id === user?.id;
 
-            <div className="nearby-pulse"></div>
+                    return (
+                      <div
+                        key={message.id}
+                        style={{
+                          alignSelf: mine ? "flex-end" : "flex-start",
+                          maxWidth: "82%",
+                          padding: "10px 13px",
+                          borderRadius: mine
+                            ? "16px 16px 4px 16px"
+                            : "16px 16px 16px 4px",
+                          background: mine
+                            ? "rgba(210, 61, 78, 0.12)"
+                            : "rgba(127, 127, 127, 0.10)",
+                        }}
+                      >
+                        <div style={{ fontSize: "13px", opacity: 0.62, marginBottom: "3px" }}>
+                          {mine ? "You" : accountType === "recipient" ? "Donor" : "Recipient"}
+                        </div>
+                        <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                          {message.message}
+                        </div>
+                        <div style={{ fontSize: "11px", opacity: 0.52, marginTop: "4px" }}>
+                          {message.created_at
+                            ? new Date(message.created_at).toLocaleTimeString("en-IN", {
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })
+                            : ""}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
+            {chatError && (
+              <div
+                className="error-message"
+                style={{ margin: "0 20px 10px" }}
+              >
+                <span>!</span>
+                {chatError}
+              </div>
+            )}
+
+            <form
+              onSubmit={handleSendChatMessage}
+              style={{
+                padding: "14px 20px 18px",
+                borderTop: "1px solid rgba(127,127,127,.18)",
+                display: "flex",
+                gap: "10px",
+                alignItems: "flex-end",
+              }}
+            >
+              <textarea
+                value={chatText}
+                onChange={(e) => setChatText(e.target.value)}
+                placeholder="Type a message… e.g. Where should we meet?"
+                maxLength={1000}
+                rows={2}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  resize: "vertical",
+                  borderRadius: "14px",
+                  border: "1px solid rgba(127,127,127,.25)",
+                  padding: "11px 12px",
+                  font: "inherit",
+                }}
+              />
+
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={chatSending || !chatText.trim()}
+              >
+                {chatSending ? "Sending..." : "Send ↑"}
+              </button>
+            </form>
           </div>
-
-          <h3>
-            Your nearby requests
-            will appear here.
-          </h3>
-
-          <p>
-            Once donor matching is connected,
-            compatible requests near you can be
-            shown in this space.
-          </p>
-
-          <span className="coming-soon-badge">
-            MATCHING COMING NEXT
-          </span>
-
-        </Reveal>
-
-      </section>
+        </div>
+      )}
 
     </main>
   );
@@ -3906,19 +5259,33 @@ function App() {
     */
 
     const loadSession = async () => {
-      const {
-        data: {
-          session,
-        },
-      } = await supabase.auth.getSession();
+      try {
+        const {
+          data: {
+            session,
+          },
+        } =
+          await supabase.auth.getSession();
 
-      if (!mounted) return;
+        if (!mounted) return;
 
-      setUser(
-        session?.user || null
-      );
+        setUser(
+          session?.user || null
+        );
+      } catch (error) {
+        console.error(
+          "Session loading error:",
+          error
+        );
 
-      setAuthLoading(false);
+        if (!mounted) return;
+
+        setUser(null);
+      } finally {
+        if (mounted) {
+          setAuthLoading(false);
+        }
+      }
     };
 
     loadSession();
