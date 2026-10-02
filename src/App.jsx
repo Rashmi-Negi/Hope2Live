@@ -2188,6 +2188,43 @@ function DashboardPage({
   const [lastDonationDate, setLastDonationDate] =
     useState("");
 
+  /* =========================================================
+     BLOOD REQUEST STATE
+  ========================================================= */
+
+  const [requestBloodGroup, setRequestBloodGroup] =
+    useState("");
+
+  const [requestLocation, setRequestLocation] =
+    useState("");
+
+  const [requestRequiredDate, setRequestRequiredDate] =
+    useState("");
+
+  const [requestUrgency, setRequestUrgency] =
+    useState("Normal");
+
+  const [requestMessage, setRequestMessage] =
+    useState("");
+
+  const [requestLoading, setRequestLoading] =
+    useState(false);
+
+  const [requestGettingLocation, setRequestGettingLocation] =
+    useState(false);
+
+  const [requestSuccess, setRequestSuccess] =
+    useState("");
+
+  const [requestError, setRequestError] =
+    useState("");
+
+  const [myRequests, setMyRequests] =
+    useState([]);
+
+  const [requestsLoading, setRequestsLoading] =
+    useState(false);
+
   useEffect(() => {
     let mounted = true;
 
@@ -2457,6 +2494,218 @@ function DashboardPage({
     );
 
     setSaving(false);
+  };
+
+  const handleRequestLocation = () => {
+    if (!navigator.geolocation) {
+      setRequestError(
+        "Geolocation is not supported by this browser."
+      );
+      return;
+    }
+
+    setRequestError("");
+    setRequestSuccess("");
+    setRequestGettingLocation(true);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+
+        setRequestLocation(
+          `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+        );
+
+        setProfile((previous) => ({
+          ...(previous || {}),
+          latitude: String(latitude),
+          longitude: String(longitude),
+        }));
+
+        setRequestGettingLocation(false);
+        setRequestSuccess(
+          "Current location detected. It will be attached to your blood request 📍"
+        );
+      },
+      (geoError) => {
+        setRequestGettingLocation(false);
+
+        if (geoError.code === 1) {
+          setRequestError(
+            "Location permission was denied. Please allow location access in your browser."
+          );
+        } else if (geoError.code === 2) {
+          setRequestError("Your location could not be detected.");
+        } else if (geoError.code === 3) {
+          setRequestError("Location request timed out. Please try again.");
+        } else {
+          setRequestError("Unable to get your current location.");
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      }
+    );
+  };
+
+  const fetchMyRequests = async () => {
+    if (!user?.id) return;
+
+    setRequestsLoading(true);
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("blood_requests")
+      .select(
+        "id, blood_group, location, latitude, longitude, required_date, urgency, message, status, created_at"
+      )
+      .eq("requester_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Blood requests fetch error:", error);
+      setRequestsLoading(false);
+      return;
+    }
+
+    setMyRequests(data || []);
+    setRequestsLoading(false);
+  };
+
+  useEffect(() => {
+    if (!user?.id) return;
+    fetchMyRequests();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!requestBloodGroup && bloodGroup) {
+      setRequestBloodGroup(bloodGroup);
+    }
+  }, [bloodGroup, requestBloodGroup]);
+
+  useEffect(() => {
+    if (!requestLocation && location) {
+      setRequestLocation(location);
+    }
+  }, [location, requestLocation]);
+
+  const handleCreateBloodRequest = async (e) => {
+    e.preventDefault();
+
+    setRequestLoading(true);
+    setRequestSuccess("");
+    setRequestError("");
+
+    if (!requestBloodGroup) {
+      setRequestError("Please select the required blood group.");
+      setRequestLoading(false);
+      return;
+    }
+
+    if (!requestLocation.trim()) {
+      setRequestError("Please enter the location where blood support is needed.");
+      setRequestLoading(false);
+      return;
+    }
+
+    const latitude =
+      profile?.latitude != null
+        ? String(profile.latitude)
+        : null;
+
+    const longitude =
+      profile?.longitude != null
+        ? String(profile.longitude)
+        : null;
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("blood_requests")
+      .insert([
+        {
+          requester_id: user.id,
+          blood_group: requestBloodGroup,
+          location: requestLocation.trim(),
+          latitude,
+          longitude,
+          required_date: requestRequiredDate || null,
+          urgency: requestUrgency,
+          message: requestMessage.trim() || null,
+          status: "Open",
+        },
+      ])
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.error("Blood request create error:", error);
+      setRequestError(
+        `Unable to create your blood request: ${
+          error.message || "Unknown Supabase error"
+        }`
+      );
+      setRequestLoading(false);
+      return;
+    }
+
+    setRequestSuccess(
+      "Your blood request has been created successfully. We can now use it for donor matching. ❤️"
+    );
+
+    setRequestRequiredDate("");
+    setRequestUrgency("Normal");
+    setRequestMessage("");
+
+    if (data) {
+      setMyRequests((previous) => [
+        data,
+        ...previous,
+      ]);
+    } else {
+      await fetchMyRequests();
+    }
+
+    setRequestLoading(false);
+  };
+
+  const handleCancelBloodRequest = async (requestId) => {
+    if (!requestId) return;
+
+    setRequestError("");
+    setRequestSuccess("");
+
+    const { error } = await supabase
+      .from("blood_requests")
+      .update({ status: "Cancelled" })
+      .eq("id", requestId)
+      .eq("requester_id", user.id);
+
+    if (error) {
+      console.error("Blood request cancel error:", error);
+      setRequestError(
+        `Unable to cancel this request: ${
+          error.message || "Unknown Supabase error"
+        }`
+      );
+      return;
+    }
+
+    setMyRequests((previous) =>
+      previous.map((request) =>
+        request.id === requestId
+          ? { ...request, status: "Cancelled" }
+          : request
+      )
+    );
+
+    setRequestSuccess("Blood request cancelled successfully.");
   };
 
   const handleLogout = async () => {
@@ -3109,6 +3358,323 @@ function DashboardPage({
         </div>
 
       </Reveal>
+
+      {/* BLOOD REQUEST */}
+
+      {accountType === "recipient" && (
+        <section className="donor-request-section">
+
+          <Reveal className="section-heading">
+
+            <div>
+              <p className="eyebrow">
+                NEED BLOOD SUPPORT
+              </p>
+
+              <h2>
+                Create a blood request
+              </h2>
+            </div>
+
+          </Reveal>
+
+          <Reveal
+            className="dashboard-info-card donor-profile-card"
+            delay={100}
+          >
+
+            <div className="form-card-heading">
+
+              <div>
+                <p className="eyebrow">
+                  REQUEST DETAILS
+                </p>
+
+                <h2>
+                  Tell potential donors what you need
+                </h2>
+              </div>
+
+              <div className="profile-form-icon">
+                🩸
+              </div>
+
+            </div>
+
+            {requestSuccess && (
+              <div className="success-message-small">
+                <span>✓</span>
+                {requestSuccess}
+              </div>
+            )}
+
+            {requestError && (
+              <div className="error-message">
+                <span>!</span>
+                {requestError}
+              </div>
+            )}
+
+            <form
+              className="profile-form"
+              onSubmit={handleCreateBloodRequest}
+            >
+
+              <div className="profile-form-grid">
+
+                <label>
+                  Required blood group
+
+                  <select
+                    value={requestBloodGroup}
+                    onChange={(e) =>
+                      setRequestBloodGroup(e.target.value)
+                    }
+                    required
+                  >
+                    <option value="">
+                      Select blood group
+                    </option>
+
+                    <option value="A+">A+</option>
+                    <option value="A-">A-</option>
+                    <option value="B+">B+</option>
+                    <option value="B-">B-</option>
+                    <option value="AB+">AB+</option>
+                    <option value="AB-">AB-</option>
+                    <option value="O+">O+</option>
+                    <option value="O-">O-</option>
+                  </select>
+                </label>
+
+                <label>
+                  Urgency
+
+                  <select
+                    value={requestUrgency}
+                    onChange={(e) =>
+                      setRequestUrgency(e.target.value)
+                    }
+                  >
+                    <option value="Normal">Normal</option>
+                    <option value="Urgent">Urgent</option>
+                    <option value="Emergency">Emergency</option>
+                  </select>
+                </label>
+
+              </div>
+
+              <label>
+                Where is blood needed?
+
+                <input
+                  type="text"
+                  value={requestLocation}
+                  onChange={(e) =>
+                    setRequestLocation(e.target.value)
+                  }
+                  placeholder="e.g. Dehradun, Uttarakhand"
+                  required
+                />
+              </label>
+
+              <button
+                type="button"
+                className="location-button"
+                onClick={handleRequestLocation}
+                disabled={requestGettingLocation}
+              >
+                <span className="location-button-icon">
+                  {requestGettingLocation ? "◌" : "⌖"}
+                </span>
+
+                <span>
+                  {requestGettingLocation
+                    ? "Detecting your location..."
+                    : "Use my current location"}
+
+                  <small>
+                    {requestGettingLocation
+                      ? "Please allow browser location access"
+                      : "Attach your GPS position to this request"}
+                  </small>
+                </span>
+
+                {!requestGettingLocation && (
+                  <span className="location-arrow">
+                    →
+                  </span>
+                )}
+              </button>
+
+              <label>
+                Required date
+
+                <input
+                  type="date"
+                  value={requestRequiredDate}
+                  onChange={(e) =>
+                    setRequestRequiredDate(e.target.value)
+                  }
+                  min={new Date().toISOString().split("T")[0]}
+                />
+              </label>
+
+              <label>
+                Message
+
+                <textarea
+                  value={requestMessage}
+                  onChange={(e) =>
+                    setRequestMessage(e.target.value)
+                  }
+                  placeholder="Add hospital details, units needed, or any other useful information..."
+                  rows="5"
+                />
+              </label>
+
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={requestLoading}
+              >
+                {requestLoading
+                  ? "Creating blood request..."
+                  : "Create blood request"}
+
+                {!requestLoading && (
+                  <span>→</span>
+                )}
+              </button>
+
+            </form>
+
+          </Reveal>
+
+        </section>
+      )}
+
+      {/* MY BLOOD REQUESTS */}
+
+      {accountType === "recipient" && (
+        <section className="donor-request-section">
+
+          <Reveal className="section-heading">
+            <div>
+              <p className="eyebrow">
+                YOUR REQUESTS
+              </p>
+
+              <h2>
+                Blood requests you created
+              </h2>
+            </div>
+          </Reveal>
+
+          {requestsLoading ? (
+            <Reveal className="empty-request-card">
+              <div className="nearby-visual">
+                <div className="nearby-ring ring-one"></div>
+                <div className="nearby-ring ring-two"></div>
+                <span>◌</span>
+                <div className="nearby-pulse"></div>
+              </div>
+
+              <h3>
+                Loading your requests...
+              </h3>
+
+              <p>
+                Please wait while we load your blood request history.
+              </p>
+            </Reveal>
+          ) : myRequests.length === 0 ? (
+            <Reveal className="empty-request-card">
+              <div className="nearby-visual">
+                <div className="nearby-ring ring-one"></div>
+                <div className="nearby-ring ring-two"></div>
+                <span>🩸</span>
+                <div className="nearby-pulse"></div>
+              </div>
+
+              <h3>
+                You have not created a request yet.
+              </h3>
+
+              <p>
+                Create your first blood request above when support is needed.
+              </p>
+            </Reveal>
+          ) : (
+            <div className="donor-dashboard-grid">
+              {myRequests.map((request) => (
+                <Reveal key={request.id}>
+                  <div className="dashboard-info-card donor-welcome-card">
+
+                    <div className="donor-card-icon">
+                      {request.urgency === "Emergency" ? "🚨" : "🩸"}
+                    </div>
+
+                    <p className="eyebrow">
+                      {request.urgency || "NORMAL"} REQUEST
+                    </p>
+
+                    <h2>
+                      {request.blood_group} blood needed
+                    </h2>
+
+                    <p>
+                      📍 {request.location}
+                    </p>
+
+                    {request.required_date && (
+                      <p>
+                        📅 Needed by {new Date(request.required_date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}
+                      </p>
+                    )}
+
+                    {request.message && (
+                      <p>
+                        {request.message}
+                      </p>
+                    )}
+
+                    <div className="availability-status">
+                      <span
+                        className="status-dot"
+                        style={{
+                          background:
+                            request.status === "Open"
+                              ? "#7ee787"
+                              : "#ffb4b4",
+                        }}
+                      ></span>
+
+                      <span>
+                        Status: {request.status}
+                      </span>
+                    </div>
+
+                    {request.status === "Open" && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() =>
+                          handleCancelBloodRequest(request.id)
+                        }
+                      >
+                        Cancel request
+                      </button>
+                    )}
+
+                  </div>
+                </Reveal>
+              ))}
+            </div>
+          )}
+
+        </section>
+      )}
 
       {/* REQUESTS */}
 
